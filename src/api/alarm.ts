@@ -24,5 +24,5 @@ export const getTodayAlarmCount = async (): Promise<number> =>{
 }
 
 export const getAlarmTrend = () => {
-  return request.get('/alarm_logs/trend')
+  return request.get('/alarm_logs/trend/')
 }

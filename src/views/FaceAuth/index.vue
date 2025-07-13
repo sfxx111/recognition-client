@@ -15,7 +15,6 @@
       <div class="auth-top">
         <div class="camera-box">
           <video ref="videoRef" autoplay playsinline muted></video>
-          <canvas ref="canvasRef" style="display: none;"></canvas>
         </div>
 
         <div class="info-box">
@@ -51,166 +50,72 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue'
-import { ElMessage } from 'element-plus'
-import axios from 'axios'
+import { ref, onMounted, onUnmounted, watch } from 'vue';
+import { storeToRefs } from 'pinia';
+import { useFaceAuthStore } from '@/store/faceAuth'; // 1. 导入您的Pinia Store
+import { ElMessage } from 'element-plus';
 
-// --- 响应式状态定义 ---
-const videoRef = ref<HTMLVideoElement | null>(null)
-const canvasRef = ref<HTMLCanvasElement | null>(null)
-const isRecognizing = ref(false) // 控制是否进行识别的开关
-const isLoading = ref(false) // API请求的加载状态
-const statusText = ref('等待识别...') // 信息框中的状态文本
-const recognitionResult = ref<any[]>([]) // 当前帧的识别结果
-const historyLog = ref<any[]>([]) // 识别历史记录
-let recognitionInterval: any = null // 定时器句柄
+// --- 设置Store ---
+const faceAuthStore = useFaceAuthStore();
+// 2. 使用storeToRefs将store中的state解构为响应式引用，以便在模板中使用
+const { isLoading, statusText, recognitionResult, historyLog } = storeToRefs(faceAuthStore);
+// 3. 从store中解构出需要用到的actions和getters
+const { startRecognition, stopRecognition, getPersonStatusText } = faceAuthStore;
 
-// --- AI Worker API配置 ---
-const AI_WORKER_URL = 'http://127.0.0.1:5000/ai/recognize-frame'
+// --- 本地状态定义 ---
+const videoRef = ref<HTMLVideoElement | null>(null);
+// 这个isRecognizing作为UI开关的本地状态
+const isRecognizing = ref(false); 
 
 // --- 核心逻辑 ---
-
-// 1. 启动/停止识别的逻辑
+// 4. 监听UI开关的变化，并调用store中定义的actions来执行真正的业务逻辑
 watch(isRecognizing, (newValue) => {
   if (newValue) {
-    startRecognition()
+    startRecognition(videoRef.value); // 调用action启动识别
   } else {
-    stopRecognition()
+    stopRecognition(); // 调用action停止识别
   }
-})
-
-// 2. 开始识别
-const startRecognition = () => {
-  if (recognitionInterval) return; // 防止重复启动
-  ElMessage.success('识别已开始')
-  // 每1.5秒识别一次
-  recognitionInterval = setInterval(captureAndRecognize, 800)
-}
-
-// 3. 停止识别
-const stopRecognition = () => {
-  if (recognitionInterval) {
-    clearInterval(recognitionInterval)
-    recognitionInterval = null
-    isLoading.value = false
-    statusText.value = '识别已停止'
-    ElMessage.info('识别已停止')
-  }
-}
-
-// 4. 截图并发送识别请求
-const captureAndRecognize = async () => {
-  if (!videoRef.value || !canvasRef.value) return
-
-  const video = videoRef.value
-  const canvas = canvasRef.value
-
-  // 将canvas尺寸设置为视频的实际尺寸
-  canvas.width = video.videoWidth
-  canvas.height = video.videoHeight
-
-  // 在canvas上绘制当前视频帧
-  const context = canvas.getContext('2d')
-  if (!context) return
-  context.drawImage(video, 0, 0, canvas.width, canvas.height)
-
-  // 将canvas内容转换为Base64编码的图片
-  const imageDataUrl = canvas.toDataURL('image/jpeg')
-
-  // 发送API请求
-  try {
-    isLoading.value = true
-    const response = await axios.post(AI_WORKER_URL, {
-      image_data: imageDataUrl
-    })
-    
-    // 处理后端返回的数据
-    handleApiResponse(response.data)
-
-  } catch (error) {
-    console.error("识别请求失败:", error)
-    statusText.value = '请求后端失败'
-    recognitionResult.value = []
-  } finally {
-    isLoading.value = false
-  }
-}
-
-// 5. 处理API返回结果
-const handleApiResponse = (data: any) => {
-  if (data.status === 'error') {
-    statusText.value = data.message
-    recognitionResult.value = []
-    return
-  }
-
-  // 更新当前识别结果
-  recognitionResult.value = data.persons || []
-  if (!recognitionResult.value.length) {
-    statusText.value = '未检测到人脸'
-  }
-
-  // 更新历史记录
-  if (recognitionResult.value.length) {
-    const timestamp = new Date().toLocaleTimeString()
-    recognitionResult.value.forEach(person => {
-      historyLog.value.unshift({
-        ...person,
-        statusText: getPersonStatusText(person),
-        timestamp
-      })
-    })
-    // 保持最多10条记录
-    if (historyLog.value.length > 10) {
-      historyLog.value.pop()
-    }
-  }
-}
-
+});
 
 // --- 辅助函数 ---
-const getPersonStatusText = (person: any) => {
-  if (person.identity === 'Stranger') return '陌生人'
-  if (person.person_state === 1) return '危险人物'
-  return '已知人员'
-}
-
+// 用于根据识别结果返回不同的CSS类名以显示颜色
 const getPersonStatusClass = (person: any) => {
-  if (person.identity === 'Stranger') return 'status-stranger'
-  if (person.person_state === 1) return 'status-danger'
-  return 'status-known'
-}
+  if (person.identity === 'Stranger') return 'status-stranger';
+  if (person.person_state === 1) return 'status-danger';
+  return 'status-known';
+};
 
 // --- 生命周期函数 ---
 onMounted(() => {
-  // 启用摄像头
+  // 启用摄像头的逻辑保持不变
   if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
     navigator.mediaDevices
       .getUserMedia({ video: true, audio: false })
       .then((stream) => {
         if (videoRef.value) {
-          videoRef.value.srcObject = stream
+          videoRef.value.srcObject = stream;
         }
       })
       .catch((err) => {
-        console.error("无法访问摄像头:", err)
-        ElMessage.error('无法访问摄像头，请检查设备和浏览器权限！')
-        statusText.value = '摄像头访问失败'
-      })
+        console.error("无法访问摄像头:", err);
+        ElMessage.error('无法访问摄像头，请检查设备和浏览器权限！');
+        statusText.value = '摄像头访问失败';
+      });
   } else {
-    ElMessage.error('您的浏览器不支持摄像头访问功能！')
-    statusText.value = '浏览器不支持'
+    ElMessage.error('您的浏览器不支持摄像头访问功能！');
+    statusText.value = '浏览器不支持';
   }
-})
+});
 
 onUnmounted(() => {
-  // 组件销毁时，停止识别并释放摄像头资源
-  stopRecognition()
+  // 组件销毁时，确保调用store中的stopRecognition来清理定时器
+  stopRecognition();
+  // 并释放摄像头资源
   if (videoRef.value && videoRef.value.srcObject) {
-    const stream = videoRef.value.srcObject as MediaStream
-    stream.getTracks().forEach(track => track.stop())
+    const stream = videoRef.value.srcObject as MediaStream;
+    stream.getTracks().forEach(track => track.stop());
   }
-})
+});
 </script>
 
 <style scoped>

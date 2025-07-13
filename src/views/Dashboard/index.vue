@@ -69,9 +69,16 @@
       <el-col :span="24">
         <el-card>
           <template #header>
-            <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div class="card-header">
               <span>告警趋势</span>
-              <el-button type="primary" size="small" @click="generateReport">生成日报</el-button>
+              <el-button 
+                type="primary" 
+                size="small" 
+                @click="handleGenerateReport"
+                :loading="isReportLoading"
+              >
+                生成日报
+              </el-button>
             </div>
           </template>
           <div class="chart-container">
@@ -80,6 +87,24 @@
         </el-card>
       </el-col>
     </el-row>
+  <el-dialog
+    v-model="reportDialogVisible"
+    title="今日AI监控日报"
+    width="60%"
+    top="10vh"
+  >
+    <pre class="report-content">{{ currentReportContent }}</pre>
+    
+    <template #footer>
+      <span class="dialog-footer">
+        <el-button @click="reportDialogVisible = false">关闭</el-button>
+        <el-button type="success" @click="handleDownloadReport">
+          <el-icon><Download /></el-icon>
+          下载为 .txt 文件
+        </el-button>
+      </span>
+    </template>
+  </el-dialog>
 
 
     <!-- 最新告警 -->
@@ -246,14 +271,56 @@ const updateTrendData = (trendData: { dates: string[]; counts: number[] }) => {
   alarmTrendOption.value.series[0].data = trendData.counts
 }
 
-const generateReport = async () => {
+
+const isReportLoading = ref(false);
+const reportDialogVisible = ref(false);
+const currentReportContent = ref('');
+
+const handleGenerateReport = async () => {
+  isReportLoading.value = true;
   try {
-    await generateDailyReport()
-    ElMessage.success('日报生成成功！')
+    const res = await generateDailyReport();
+    // 将API成功返回的报告内容存储起来
+    currentReportContent.value = res.content;
+    // 显示弹窗
+    reportDialogVisible.value = true;
+    ElMessage.success('日报生成成功！');
   } catch (error) {
-    ElMessage.error('生成失败，请稍后再试')
+    // 错误已由 request.ts 统一处理，这里只是为了调试
+    console.error("生成日报失败:", error);
+  } finally {
+    isReportLoading.value = false;
   }
-}
+};
+
+/**
+ * 处理“下载”按钮的点击事件
+ */
+const handleDownloadReport = () => {
+  if (!currentReportContent.value) {
+    ElMessage.warning('报告内容为空，无法下载。');
+    return;
+  }
+
+  // 1. 获取当前日期作为文件名的一部分
+  const today = new Date();
+  const dateString = `${today.getFullYear()}-${(today.getMonth() + 1).toString().padStart(2, '0')}-${today.getDate().toString().padStart(2, '0')}`;
+  const filename = `AI监控日报-${dateString}.txt`;
+
+  // 2. 将报告内容（字符串）转换为Blob对象
+  const blob = new Blob([currentReportContent.value], { type: 'text/plain;charset=utf-8' });
+
+  // 3. 创建一个隐藏的<a>标签来触发下载
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob); // 创建一个指向Blob的URL
+  link.download = filename; // 设置下载文件的名称
+  
+  // 4. 触发点击并清理
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(link.href); // 释放URL对象
+};
 
 
 onMounted(async () => {

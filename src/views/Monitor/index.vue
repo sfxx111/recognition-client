@@ -120,6 +120,9 @@ import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useMonitorStore } from '@/store/monitor';
 import type { DetectionEvent } from '@/types/monitor'; // 确保类型文件已创建
+// --- 这是需要修改的部分 ---
+import { ElMessage } from 'element-plus'; // 新增导入
+// --- 修改结束 ---
 
 const router = useRouter();
 const monitorStore = useMonitorStore();
@@ -128,7 +131,13 @@ const monitorStore = useMonitorStore();
 const addCameraDialogVisible = ref(false);
 const isSubmitting = ref(false);
 const newCameraForm = ref({
-  name: '', location: '', camera_type: '', stream_key: '',is_active:false
+  name: '',
+  location: '',
+  camera_type: '',
+  stream_key: '', // 这个字段会用于前端输入
+  // --- 这是需要修改的部分 ---
+  // is_active: false // 从这里移除，因为将在 handleAddNewCamera 构造数据时传入 true
+  // --- 修改结束 ---
 });
 
 // --- Lifecycle Hook ---
@@ -142,11 +151,35 @@ const handleAddNewCamera = async () => {
     ElMessage.warning('请填写名称和推流码');
     return;
   }
+
   isSubmitting.value = true;
-  const success = await monitorStore.createCamera(newCameraForm.value);
+
+  // --- 这是需要修改的部分 ---
+  // 构造发送到后端的数据对象，映射前端字段到后端期望的字段
+  const cameraDataToSend = {
+    name: newCameraForm.value.name,
+    location: newCameraForm.value.location,
+    camera_type: newCameraForm.value.camera_type,
+    url: monitorStore.streamBaseUrl, // 后端模型中的 'url' 对应前端的“推流地址”
+    password: newCameraForm.value.stream_key, // 后端模型中的 'password' 对应前端的“推流码”
+    is_active: true, // 默认设置为 true，表示摄像头是活动的
+  };
+
+  // 调用 store 中的 createCamera 方法，传入构造好的数据
+  // 注意：这里的 success 依赖于 monitorStore.createCamera 的返回
+  const success = await monitorStore.createCamera(cameraDataToSend);
+  // --- 修改结束 ---
+
   isSubmitting.value = false;
   if (success) {
     addCameraDialogVisible.value = false;
+    // --- 这是需要修改的部分 ---
+    ElMessage.success('摄像头添加成功！'); // 添加成功提示
+    resetForm(); // 添加成功后重置表单
+    // --- 修改结束 ---
+  } else {
+    // 假设 monitorStore.createCamera 在失败时已经显示了 ElMessage 错误提示
+    // 所以这里可以不用重复显示错误
   }
 };
 
@@ -175,6 +208,7 @@ const createAlarm = (detection: DetectionEvent) => {
 </script>
 
 <style scoped>
+/* 样式部分保持不变 */
 .monitor-container {
   height: calc(100vh - 90px);
   display: flex;
